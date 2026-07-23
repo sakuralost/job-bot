@@ -1,0 +1,21 @@
+[project]
+name = "job-bot"
+version = "0.2.0"
+requires-python = ">=3.11"
+dependencies = [
+  "alembic>=1.16,<2", "apscheduler>=3.11,<4", "fastapi>=0.116,<1", "jinja2>=3.1,<4",
+  "openai>=1.0,<2", "psycopg[binary]>=3.2,<4", "pydantic-settings>=2.10,<3",
+  "python-multipart>=0.0.9,<1", "python-socks[asyncio]>=2.7,<3", "python-telegram-bot>=22,<23",
+  "pyyaml>=6,<7", "sqlalchemy>=2.0,<3", "telethon>=1.40,<2", "uvicorn[standard]>=0.35,<1"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+include = ["app*", "worker*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

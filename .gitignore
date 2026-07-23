@@ -1,0 +1,30 @@
+# Secrets and Telegram session
+.env
+.env.*
+!.env.example
+.DS_Store
+*.session
+*.session-journal
+secrets/
+
+# 真实监控来源/筛选关键词属于个人配置，只提交 .example 模板
+config/monitored_chats.yaml
+config/filters.yaml
+config/sources.json
+config/preferences.json
+
+# Runtime data
+data/*.db
+data/*.sqlite*
+data/backups/
+data/ollama/
+logs/
+cache/
+runtime-proxy/
+
+# Python and frontend artifacts
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+dist/

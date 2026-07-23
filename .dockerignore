@@ -1,0 +1,12 @@
+.git/
+.DS_Store
+.env
+.env.*
+*.session
+*.session-journal
+data/
+logs/
+cache/
+__pycache__/
+*.py[cod]
+.venv/

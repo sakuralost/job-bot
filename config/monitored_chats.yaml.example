@@ -1,0 +1,11 @@
+# 由已授权 Telegram 会话现场解析生成；复制为 monitored_chats.yaml 后按需增删。
+# telegram_chat_id 使用稳定数值 ID，不要依赖会变化的显示名称或用户名。
+chats:
+  - telegram_chat_id: -1001234567890
+    title: 示例：Web3 招聘求职频道
+    username: example_job_channel
+    enabled: true
+  - telegram_chat_id: -1009876543210
+    title: 示例：私有邀请群（无公开用户名）
+    username: null
+    enabled: true
