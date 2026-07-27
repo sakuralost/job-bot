@@ -1,0 +1,12 @@
+{
+  "sources": [
+    {
+      "handle": "example_job_channel",
+      "label": "示例公开招聘频道"
+    },
+    {
+      "handle": "+replace_with_your_invite",
+      "label": "示例私有邀请群"
+    }
+  ]
+}

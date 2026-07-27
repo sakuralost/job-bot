@@ -9,14 +9,13 @@ class Settings(BaseSettings):
     app_name: str = "job-bot"
     app_env: str = "production"
     timezone: str = "Asia/Shanghai"
-    # compose.yaml 里 app 用 host 网络，所以是 127.0.0.1 而不是容器名 "postgres"
-    database_url: str = "postgresql+psycopg://jobbot:change_me@127.0.0.1:5432/jobbot"
+    database_url: str = "postgresql+psycopg://jobbot:change_me@postgres:5432/jobbot"
     admin_api_token: str = ""
     telegram_api_id: int | None = None
     telegram_api_hash: str = ""
     telegram_phone: str = ""
-    telegram_session_path: str = "/app/data/telegram"  # Telethon 自动补 .session 后缀
-    # 留空表示不用代理直连；如果你的网络需要代理才能连上 Telegram，填 SOCKS5 代理的地址和端口
+    telegram_session_path: str = "/app/data/telegram"  # Telethon 自动补 .session；已存在的登录会话文件是 data/telegram.session
+    # 留空表示直连；需要代理时填写 SOCKS5 地址和端口
     telegram_proxy_host: str = ""
     telegram_proxy_port: int | None = None
     hermes_bot_token: str = ""

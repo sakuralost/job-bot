@@ -16,8 +16,16 @@ job-bot 的做法是：规则层先做**便宜的粗筛**（同时命中"目标�
 - **远程/坐班过滤**：可按需只保留明确写明远程的岗位，排除明确要求到岗坐班的信息。
 - **联系方式抽取**：从消息正文里抽取 Telegram 用户名、邮箱、电话、微信等，正则兜底 + LLM 抽取双重来源合并去重。
 - **网页工作台**：按状态（待处理/保留/已联系/忽略）筛选、搜索、标记，原始消息链接一键跳转回 Telegram。
+- **实时进度**：读取阶段实时显示已读消息数；LLM 阶段显示已筛选、剩余数量和预计完成时间，页面不会整页刷新。
+- **后台自动检测计划**：可启用或暂停自动检测，在管理后台设置每天执行次数及每次的具体时间，保存后无需重启。
+- **可版本化中文提示词**：在后台直接编辑、折叠和恢复提示词版本；每条结果保留使用的模型和提示词版本。
+- **人工反馈参与后续判断**：忽略岗位时填写原因，系统会将近期反馈作为新岗位匹配的辅助偏好。
+- **APP 产品经理分类**：把明确属于移动端、iOS、Android 或 Mobile App 的产品岗位单独归类。
 - **对本地 LLM 友好**：不依赖 OpenAI 专属的严格 JSON 模式，对本地模型常见的输出偏差（markdown 代码块包裹、非精确枚举值）做了防御性解析，兼容任何 OpenAI 兼容接口（Ollama、vLLM、sglang、云端 API 均可）。
-- **调度可控**：默认每天定时运行一次（本地推理模型速度有限，没必要频繁扫描，也把算力留给其他用途），可在 `app/config.py` 里调整。
+
+## 管理后台预览
+
+![实时检测进度与自动检测计划](docs/images/dashboard-progress-schedule.jpg)
 
 ## 架构
 
@@ -46,6 +54,9 @@ git clone <this-repo-url> job-bot && cd job-bot
 cp .env.example job-bot.env   # 按需修改，权限建议 chmod 600
 cp config/monitored_chats.yaml.example config/monitored_chats.yaml
 cp config/filters.yaml.example config/filters.yaml
+# 使用旧版来源或偏好导入工具时，再复制对应模板
+cp config/sources.json.example config/sources.json
+cp config/preferences.json.example config/preferences.json
 ```
 
 编辑 `job-bot.env`：
@@ -84,12 +95,13 @@ job-bot/
 │   ├── dedup/             # 岗位指纹计算
 │   ├── extractor/         # 联系方式抽取与归一化
 │   ├── database/          # SQLAlchemy 数据模型
-│   ├── services/          # Telegram 扫描服务
+│   ├── services/          # 扫描、进度、提示词、自动计划服务
 │   ├── scheduler/         # 定时任务
 │   ├── api/               # 健康检查、管理端 API
-│   └── dashboard.py        # 网页工作台路由
+│   └── dashboard.py       # 网页工作台路由
 ├── worker/
-│   ├── daily_job.py        # 每日任务编排（扫描 + LLM 复核）
+│   ├── manual_scan.py      # 手动/自动检测任务及断点续跑
+│   ├── daily_job.py        # 命令行任务编排（扫描 + LLM 复核）
 │   ├── classify_pending.py # LLM 分类主流程
 │   ├── login.py            # Telegram 首次登录
 │   └── seed_chats.py       # 导入监控来源
@@ -104,7 +116,7 @@ job-bot/
 - 只以你本人明确授权的 Telegram 会话读取指定的公开或已加入群组/频道；不发送消息、不邀请成员、不自动回复。
 - 不保存 Telegram 密码、验证码、两步验证密码；`.env`、登录会话文件、数据库均被 `.gitignore` 排除，不会进入版本控制。
 - 网页工作台默认只做 HTTP Basic 认证，建议只在受信任的局域网内暴露，或自行加一层反向代理认证。
-- `config/monitored_chats.yaml`、`config/filters.yaml` 是你的真实监控来源和筛选策略，同样被 `.gitignore` 排除——仓库里只有 `.example` 模板。
+- `config/monitored_chats.yaml`、`config/filters.yaml`、`config/sources.json`、`config/preferences.json` 是真实来源和筛选策略，同样被 `.gitignore` 排除——仓库里只有 `.example` 模板。
 
 ## License
 

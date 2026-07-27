@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Callable
+
 from sqlalchemy import select
 from python_socks import ProxyType
 from telethon import TelegramClient
@@ -13,7 +15,9 @@ from app.database.session import SessionLocal
 from app.classifier.rule_filter import decide, load_filters
 
 
-async def scan_once() -> int:
+async def scan_once(
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> int:
     cfg = settings()
     if not (cfg.telegram_api_id and cfg.telegram_api_hash and cfg.telegram_phone):
         raise RuntimeError("Telegram 尚未授权")
@@ -22,7 +26,11 @@ async def scan_once() -> int:
         db.add(run); db.commit(); db.refresh(run)
         chats = list(db.scalars(select(MonitoredChat).where(MonitoredChat.enabled.is_(True))))
     filters = load_filters()
-    proxy = (ProxyType.SOCKS5, cfg.telegram_proxy_host, cfg.telegram_proxy_port) if cfg.telegram_proxy_host else None
+    proxy = (
+        (ProxyType.SOCKS5, cfg.telegram_proxy_host, cfg.telegram_proxy_port)
+        if cfg.telegram_proxy_host
+        else None
+    )
     client = TelegramClient(
         cfg.telegram_session_path, cfg.telegram_api_id, cfg.telegram_api_hash,
         proxy=proxy, connection=ConnectionTcpObfuscated, connection_retries=2, retry_delay=2,
@@ -45,6 +53,8 @@ async def scan_once() -> int:
                             db.commit()
                             candidates += int(decision.candidate)
                         max_persisted = max(max_persisted, message.id); total += 1
+                    if progress_callback is not None:
+                        progress_callback(total, candidates)
                 with SessionLocal() as db:
                     row = db.get(MonitoredChat, chat.id); row.last_scanned_message_id = max_persisted; row.last_scanned_at = datetime.now(timezone.utc); db.commit()
             except FloodWaitError as exc:

@@ -25,6 +25,29 @@ class MonitoredChat(Timestamped, Base):
     last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class JobDedupGroup(Timestamped, Base):
+    """跨扫描长期保留的岗位身份，以及用户对这一岗位做出的人工决定。"""
+
+    __tablename__ = "job_dedup_groups"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(40), default="new", index=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    occurrence_count: Mapped[int] = mapped_column(Integer, default=0)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class JobDedupKey(Base):
+    """一个岗位可拥有原文、公司岗位、联系方式岗位等多种稳定去重键。"""
+
+    __tablename__ = "job_dedup_keys"
+    __table_args__ = (UniqueConstraint("key_type", "key_hash", name="uq_job_dedup_key"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("job_dedup_groups.id"), index=True)
+    key_type: Mapped[str] = mapped_column(String(40))
+    key_hash: Mapped[str] = mapped_column(String(64))
+
+
 class TelegramMessage(Timestamped, Base):
     __tablename__ = "telegram_messages"
     __table_args__ = (UniqueConstraint("telegram_chat_id", "telegram_message_id", name="uq_telegram_message"),)
@@ -42,6 +65,10 @@ class TelegramMessage(Timestamped, Base):
     status: Mapped[str] = mapped_column(String(40), default="collected", index=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    classification_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    classification_prompt_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dedup_group_id: Mapped[int | None] = mapped_column(ForeignKey("job_dedup_groups.id"), nullable=True, index=True)
 
 
 class JobPost(Timestamped, Base):
@@ -61,12 +88,15 @@ class JobPost(Timestamped, Base):
     job_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     role_match_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_product_role: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_app_product_role: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_remote: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_excluded: Mapped[bool] = mapped_column(Boolean, default=False)
     excluded_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=0)
     source_message_link: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="new", index=True)
+    dedup_group_id: Mapped[int | None] = mapped_column(ForeignKey("job_dedup_groups.id"), nullable=True, index=True)
+    duplicate_of_job_post_id: Mapped[int | None] = mapped_column(ForeignKey("job_posts.id"), nullable=True, index=True)
 
 
 class Contact(Timestamped, Base):
@@ -118,6 +148,16 @@ class ScanRun(Base):
     summary_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
 
+class LlmPromptVersion(Base):
+    __tablename__ = "llm_prompt_versions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, unique=True)
+    system_prompt: Mapped[str] = mapped_column(Text)
+    change_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class NotificationRecord(Base):
     __tablename__ = "notification_records"
     __table_args__ = (UniqueConstraint("job_post_id", "notification_type", name="uq_notification_per_type"),)
@@ -129,3 +169,68 @@ class NotificationRecord(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="pending")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ReclassificationRun(Base):
+    __tablename__ = "reclassification_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prompt_version: Mapped[int] = mapped_column(Integer, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    total_items: Mapped[int] = mapped_column(Integer, default=0)
+    processed_items: Mapped[int] = mapped_column(Integer, default=0)
+    accepted_items: Mapped[int] = mapped_column(Integer, default=0)
+    excluded_items: Mapped[int] = mapped_column(Integer, default=0)
+    duplicate_items: Mapped[int] = mapped_column(Integer, default=0)
+    error_items: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ReclassificationItem(Base):
+    __tablename__ = "reclassification_items"
+    __table_args__ = (UniqueConstraint("run_id", "message_id", name="uq_reclassification_run_message"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("reclassification_runs.id"), index=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("telegram_messages.id"), index=True)
+    job_post_id: Mapped[int] = mapped_column(ForeignKey("job_posts.id"), index=True)
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    outcome: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ManualScanRequest(Base):
+    """管理员主动发起的增量扫描及其后续 LLM 筛选状态。"""
+
+    __tablename__ = "manual_scan_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(40), default="queued", index=True)
+    trigger_source: Mapped[str] = mapped_column(String(20), default="manual")
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    llm_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scan_run_id: Mapped[int | None] = mapped_column(ForeignKey("scan_runs.id"), nullable=True, index=True)
+    messages_found: Mapped[int] = mapped_column(Integer, default=0)
+    rule_candidates: Mapped[int] = mapped_column(Integer, default=0)
+    scan_error_count: Mapped[int] = mapped_column(Integer, default=0)
+    classification_total: Mapped[int] = mapped_column(Integer, default=0)
+    classification_processed: Mapped[int] = mapped_column(Integer, default=0)
+    accepted_items: Mapped[int] = mapped_column(Integer, default=0)
+    excluded_items: Mapped[int] = mapped_column(Integer, default=0)
+    duplicate_items: Mapped[int] = mapped_column(Integer, default=0)
+    error_items: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ScanSchedule(Base):
+    """后台可编辑的每日自动检测时间。"""
+
+    __tablename__ = "scan_schedules"
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    scan_times: Mapped[list[str]] = mapped_column(JSON, default=lambda: ["04:00"])
+    last_triggered_slot: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
