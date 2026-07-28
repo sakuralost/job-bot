@@ -34,6 +34,13 @@
     .history-progress{margin-top:10px}.history-progress summary{color:#475569}
     progress{width:100%;height:18px;accent-color:#0f766e}.hidden{display:none}
     button:disabled{background:#94a3b8;cursor:not-allowed}.action-error{color:#b91c1c;margin:8px 4px 0}
+    .source-card{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .source-card button{font-size:13px}.source-dialog{width:min(560px,calc(100vw - 32px));border:0;border-radius:14px;padding:0;box-shadow:0 24px 70px #0f172a55}
+    .source-dialog::backdrop{background:#0f172a88}.source-dialog-body{padding:18px}.source-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .source-dialog-header h2{margin:0}.source-dialog-header button{background:#e2e8f0;color:#334155;font-size:18px}
+    .source-dialog form{padding:0;border:0;margin:16px 0;background:transparent}.source-list{border-top:1px solid #e2e8f0}
+    .source-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px;border-bottom:1px solid #e2e8f0}
+    .source-row button{flex:0 0 auto}.source-empty{padding:16px 2px}.source-add-result{color:#166534;margin:8px 4px 0}
     @media(max-width:720px){.grid{grid-template-columns:1fr}}
     @media(max-width:720px){.workflow-heading{align-items:flex-start;flex-direction:column}}
     @media(max-width:720px){.schedule-grid{grid-template-columns:1fr 1fr}}
@@ -41,15 +48,50 @@
 </head>
 <body>
   <h1>job-bot</h1>
-  <p class="muted">产品岗位机会工作台：先用关键词规则排除明显无关消息，再由 81 本地语言模型进行语义复核；原消息始终可从 Telegram 打开。</p>
+  <p class="muted">产品岗位机会工作台：先用关键词规则排除明显无关消息，再由自托管语言模型进行语义复核；原消息始终可从 Telegram 打开。</p>
 
   <div class="grid">
-    <div class="card"><div class="n">{{ stats.sources }}</div>启用来源</div>
+    <div class="card source-card">
+      <div><div class="n" data-source-count>{{ stats.sources }}</div>启用来源</div>
+      <button class="secondary" id="manage-sources" type="button">管理</button>
+    </div>
     <div class="card"><div class="n">{{ stats.messages }}</div>已读取消息</div>
     <div class="card"><div class="n" data-state-count="new">{{ states.get('new',0) }}</div>待处理</div>
     <div class="card"><div class="n" data-state-count="contacted">{{ states.get('contacted',0) }}</div>已联系</div>
     <div class="card"><div class="n">{{ stats.duplicates }}</div>已合并重复</div>
   </div>
+
+  <dialog class="source-dialog" id="source-dialog">
+    <div class="source-dialog-body">
+      <div class="source-dialog-header">
+        <h2>管理消息来源</h2>
+        <button id="close-source-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+      <p class="muted">公开频道不需要先加入。新来源首次只读取近 {{ source_history_days }} 天消息，之后从上次成功位置继续；移除不会删除历史记录。</p>
+      <form id="add-source-form" method="post" action="/sources">
+        <label for="source-ref"><b>Telegram 公开链接或用户名</b></label>
+        <input class="wide" id="source-ref" name="source_ref" required
+          placeholder="例如：https://t.me/remote_jobs_demo">
+        <button id="add-source-button" type="submit">添加来源</button>
+        <p class="action-error hidden" id="source-error"></p>
+        <p class="source-add-result hidden" id="source-result"></p>
+      </form>
+      <div class="source-list" id="source-list">
+        {% for source in enabled_sources %}
+        <div class="source-row" data-source-id="{{ source.id }}">
+          <div>
+            <b>{{ source.title }}</b>
+            <div class="meta">{% if source.username %}@{{ source.username }}{% else %}已授权私密来源{% endif %}</div>
+          </div>
+          <button class="secondary remove-source" type="button"
+            data-source-id="{{ source.id }}" data-source-title="{{ source.title }}">移除</button>
+        </div>
+        {% else %}
+        <p class="muted source-empty">暂时没有启用的来源。</p>
+        {% endfor %}
+      </div>
+    </div>
+  </dialog>
 
   {% set reclassification = workflow.reclassification %}
   {% set manual_scan = workflow.manual_scan %}
@@ -293,6 +335,70 @@
   {% endfor %}
   </section>
   <script>
+    const sourceDialog = document.getElementById("source-dialog");
+    const sourceForm = document.getElementById("add-source-form");
+    const sourceError = document.getElementById("source-error");
+    const sourceResult = document.getElementById("source-result");
+    document.getElementById("manage-sources").addEventListener("click", () => sourceDialog.showModal());
+    document.getElementById("close-source-dialog").addEventListener("click", () => sourceDialog.close());
+    sourceDialog.addEventListener("click", (event) => {
+      if (event.target === sourceDialog) sourceDialog.close();
+    });
+    sourceForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = document.getElementById("add-source-button");
+      button.disabled = true;
+      sourceError.classList.add("hidden");
+      sourceResult.classList.add("hidden");
+      try {
+        const response = await fetch(sourceForm.action, {
+          method: "POST",
+          body: new FormData(sourceForm),
+          headers: {"Accept": "application/json"}
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "添加失败，请重试。");
+        sourceResult.textContent = result.created
+          ? `添加成功，首次会读取近 ${result.history_days} 天消息。`
+          : "来源已重新启用，将从原来的读取位置继续。";
+        sourceResult.classList.remove("hidden");
+        window.setTimeout(() => window.location.reload(), 650);
+      } catch (error) {
+        sourceError.textContent = error.message || "添加失败，请重试。";
+        sourceError.classList.remove("hidden");
+        button.disabled = false;
+      }
+    });
+
+    document.querySelectorAll(".remove-source").forEach((button) => {
+      button.addEventListener("click", async () => {
+        if (!window.confirm(`停止扫描“${button.dataset.sourceTitle}”？历史消息会保留。`)) return;
+        button.disabled = true;
+        sourceError.classList.add("hidden");
+        try {
+          const response = await fetch(`/sources/${button.dataset.sourceId}/remove`, {
+            method: "POST",
+            headers: {"Accept": "application/json"}
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || "移除失败，请重试。");
+          document.querySelector("[data-source-count]").textContent = result.enabled_count;
+          const row = button.closest(".source-row");
+          row.remove();
+          if (!document.querySelector("#source-list .source-row")) {
+            const empty = document.createElement("p");
+            empty.className = "muted source-empty";
+            empty.textContent = "暂时没有启用的来源。";
+            document.getElementById("source-list").appendChild(empty);
+          }
+        } catch (error) {
+          sourceError.textContent = error.message || "移除失败，请重试。";
+          sourceError.classList.remove("hidden");
+          button.disabled = false;
+        }
+      });
+    });
+
     const llmSettings = document.getElementById("llm-settings");
     if (window.location.hash === "#llm-settings") {
       llmSettings.open = true;

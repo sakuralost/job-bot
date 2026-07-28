@@ -40,6 +40,14 @@ from app.services.scan_schedule import (
     save_scan_schedule,
     scan_schedule_view,
 )
+from app.services.source_management import (
+    SOURCE_HISTORY_DAYS,
+    SourceResolutionError,
+    resolve_source,
+    source_payload,
+    upsert_source,
+)
+from app.services.worker_lock import telegram_scan_lock
 from worker.manual_scan import launch_manual_scan
 
 router = APIRouter()
@@ -194,6 +202,13 @@ def dashboard(
             select(func.count()).select_from(TelegramMessage).where(TelegramMessage.status == "duplicate")
         ),
     }
+    enabled_sources = list(
+        db.scalars(
+            select(MonitoredChat)
+            .where(MonitoredChat.enabled.is_(True))
+            .order_by(MonitoredChat.title, MonitoredChat.id)
+        )
+    )
     visible_jobs = (
         JobPost.is_excluded.is_(False),
         JobPost.duplicate_of_job_post_id.is_(None),
@@ -256,6 +271,8 @@ def dashboard(
     }.get(state, "待处理 APP 产品经理" if category == "app" else "待处理候选机会")
     return templates.TemplateResponse(request, "dashboard.html", {
         "stats": stats, "states": states, "total_jobs": total_jobs, "app_jobs": app_jobs, "jobs": jobs,
+        "enabled_sources": enabled_sources,
+        "source_history_days": SOURCE_HISTORY_DAYS,
         "latest_run": latest_run, "q": q, "state": state, "category": category,
         "list_title": list_title,
         "workflow": workflow,
@@ -264,6 +281,56 @@ def dashboard(
         "prompt_history": prompt_history(),
         "llm_model": cfg.openai_model or "尚未配置",
         "llm_ready": bool(cfg.openai_api_key and cfg.openai_model and cfg.openai_base_url),
+    })
+
+
+@router.post("/sources")
+def add_source(
+    source_ref: str = Form(...),
+    db=Depends(get_session),
+    _: str = Depends(require_admin),
+):
+    with telegram_scan_lock(blocking=False) as acquired:
+        if not acquired:
+            raise HTTPException(409, "正在读取 Telegram 消息，请稍后再添加来源")
+        try:
+            resolved = resolve_source(source_ref)
+        except (ValueError, SourceResolutionError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    source, created = upsert_source(db, resolved)
+    db.commit()
+    db.refresh(source)
+    enabled_count = db.scalar(
+        select(func.count()).select_from(MonitoredChat).where(MonitoredChat.enabled.is_(True))
+    )
+    return JSONResponse({
+        "ok": True,
+        "created": created,
+        "source": source_payload(source),
+        "enabled_count": enabled_count,
+        "history_days": SOURCE_HISTORY_DAYS if created else 0,
+    })
+
+
+@router.post("/sources/{source_id}/remove")
+def remove_source(
+    source_id: int,
+    db=Depends(get_session),
+    _: str = Depends(require_admin),
+):
+    source = db.get(MonitoredChat, source_id)
+    if source is None:
+        raise HTTPException(404, "未找到该来源")
+    source.enabled = False
+    db.commit()
+    enabled_count = db.scalar(
+        select(func.count()).select_from(MonitoredChat).where(MonitoredChat.enabled.is_(True))
+    )
+    return JSONResponse({
+        "ok": True,
+        "source_id": source.id,
+        "enabled_count": enabled_count,
     })
 
 

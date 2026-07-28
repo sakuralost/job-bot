@@ -50,6 +50,18 @@ def test_dashboard_template_contains_live_progress_and_incremental_scan_button()
     assert 'type="time"' in source
 
 
+def test_source_management_dialog_supports_add_and_remove_without_history_deletion():
+    template = templates.env.get_template("dashboard.html")
+    source = Path(template.filename).read_text(encoding="utf-8")
+    assert 'id="manage-sources"' in source
+    assert 'id="source-dialog"' in source
+    assert 'action="/sources"' in source
+    assert "首次只读取近 {{ source_history_days }} 天消息" in source
+    assert 'fetch(`/sources/${button.dataset.sourceId}/remove`' in source
+    assert "row.remove()" in source
+    assert "移除不会删除历史记录" in source
+
+
 def test_app_category_only_uses_pending_jobs():
     assert _list_scope("", "app") == ("new", "", "app")
 
