@@ -17,6 +17,11 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def message_content_fingerprint(message_text: str | None) -> str:
+    """供 LLM 处理前使用的稳定正文指纹，忽略排版、标点、大小写和全半角差异。"""
+    return _digest(compact_normalized(message_text))
+
+
 def job_fingerprint(company: str | None, title: str | None, contact: str | None, description: str | None) -> str:
     value = "|".join(normalized(item) for item in (company, title, contact, description))
     return _digest(value)

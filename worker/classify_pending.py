@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.classifier.llm_client import classify
 from app.classifier.product_category import is_app_product_role
+from app.classifier.rule_filter import decide, load_filters
 from app.classifier.schemas import ExtractedContact, JobClassificationResult
 from app.config import settings
 from app.database.models import Contact, JobContact, JobPost, TelegramMessage
@@ -24,6 +25,16 @@ from app.services.preference_feedback import ignored_reason_context
 from app.services.worker_lock import llm_classification_lock
 
 MAX_RETRIES = 5
+PRODUCT_CONSISTENCY_PROMPT = """
+
+# 本条结果一致性复核
+规则层已经确认原文同时包含明确的目标产品岗位名称和招聘意图。请重新逐段检查：
+1. 只要原文确实在招聘产品经理、Product Manager、Product Owner、Product Lead、产品负责人或产品总监，
+   is_job_post 和 is_product_role 必须为 true。
+2. 增长、合规、风控、理财、合约、活动、金融、衍生品等细分排除项，以及其他用户排除条件，
+   只能通过 is_excluded=true 和 excluded_reason 表达，不能把产品岗位改判为 is_product_role=false。
+3. 如果目标岗位只是在非招聘语境中被提到，才可以维持 is_product_role=false。
+"""
 
 
 def _personalized_prompt(db, system_prompt: str) -> str:
@@ -48,6 +59,39 @@ def _chinese_role_match_reason(result: JobClassificationResult) -> str:
         parts.append(f"地点为 {result.location}")
     parts.append(f"匹配度为 {round(result.confidence * 100)}%")
     return "；".join(parts)
+
+
+def _keep_for_manual_review(result: JobClassificationResult, message_text: str) -> JobClassificationResult:
+    """模型连续给出矛盾结果时宁可进入候选区人工确认，也不再静默排除。"""
+    body = message_text.lower()
+    explicitly_remote = any(
+        marker in body for marker in ("远程", "remote", "线上办公", "居家办公")
+    )
+    result.is_job_post = True
+    result.is_product_role = True
+    result.is_excluded = False
+    result.excluded_category = None
+    result.excluded_reason = None
+    result.job_title = result.job_title or "产品经理（待人工复核）"
+    result.is_remote = True if explicitly_remote else None
+    result.work_mode = "remote" if explicitly_remote else "unknown"
+    result.confidence = 0.5
+    result.role_match_reason = "原文命中明确产品岗位，但模型连续两次判断矛盾，系统保留给人工复核"
+    result.reasoning_summary = result.role_match_reason
+    return result
+
+
+def _resolve_product_consistency(
+    result: JobClassificationResult,
+    message_text: str,
+) -> JobClassificationResult:
+    """排除项仍按排除处理；只有真实招聘且无排除理由的矛盾结果才交给人工复核。"""
+    if result.is_job_post and result.is_excluded:
+        result.is_product_role = True
+        return result
+    if result.is_job_post and not result.is_product_role:
+        return _keep_for_manual_review(result, message_text)
+    return result
 
 
 def _normalized_identity(contact: ExtractedContact) -> str:
@@ -108,6 +152,7 @@ def _apply_result(
     message.classification_prompt_version = prompt_version
     message.classified_at = datetime.now(timezone.utc)
     message.last_error = None
+    message.classification_result_json = result.model_dump(mode="json")
     app_product_role = is_app_product_role(
         job_title=result.job_title,
         job_summary=result.job_summary,
@@ -194,6 +239,7 @@ def _classify_pending_unlocked(
 ) -> dict[str, int]:
     counts = {"accepted": 0, "excluded": 0, "excluded_not_remote": 0, "duplicate": 0, "not_product_role": 0, "error": 0, "skipped_unconfigured": 0}
     model_name = settings().openai_model
+    filters = load_filters()
     with SessionLocal() as db:
         pending_ids = list(db.scalars(select(TelegramMessage.id).where(TelegramMessage.status == "pending_classification")))
     total = len(pending_ids)
@@ -211,6 +257,18 @@ def _classify_pending_unlocked(
                     last_prompt_version = prompt.version
                 personalized_prompt = _personalized_prompt(db, prompt.system_prompt)
                 result = classify(message.message_text, system_prompt=personalized_prompt)
+                decision = decide(message.message_text, filters)
+                if (
+                    decision.candidate
+                    and result.is_job_post
+                    and not result.is_product_role
+                    and not result.is_excluded
+                ):
+                    result = classify(
+                        message.message_text,
+                        system_prompt=personalized_prompt + PRODUCT_CONSISTENCY_PROMPT,
+                    )
+                result = _resolve_product_consistency(result, message.message_text)
                 outcome = _apply_result(
                     db,
                     message,

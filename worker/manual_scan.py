@@ -130,6 +130,7 @@ def run_manual_scan(request_id: int) -> None:
                 request.messages_found = scan_run.total_messages
                 request.rule_candidates = scan_run.rule_candidates
                 request.scan_error_count = scan_run.error_count
+                request.duplicate_items = scan_run.duplicate_jobs
                 request.status = "waiting_for_llm"
                 request.classification_total = db.scalar(
                     select(func.count()).select_from(TelegramMessage).where(

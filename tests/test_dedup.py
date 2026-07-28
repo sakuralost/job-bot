@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database.base import Base
 from app.database.models import JobDedupGroup, JobPost, TelegramMessage
-from app.dedup.fingerprints import job_dedup_keys
+from app.dedup.fingerprints import job_dedup_keys, message_content_fingerprint
 from app.dedup.service import canonical_job, record_occurrence, resolve_group
 
 
@@ -23,6 +23,12 @@ def test_content_key_ignores_case_spacing_and_punctuation():
         description=None,
     )
     assert first[0] == second[0]
+
+
+def test_message_fingerprint_ignores_forwarding_format_changes():
+    assert message_content_fingerprint("招聘：远程产品经理！") == message_content_fingerprint(
+        "招 聘　远程，产品经理"
+    )
 
 
 def test_ignored_group_participates_in_future_deduplication():

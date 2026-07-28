@@ -69,6 +69,11 @@ class TelegramMessage(Timestamped, Base):
     classification_prompt_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dedup_group_id: Mapped[int | None] = mapped_column(ForeignKey("job_dedup_groups.id"), nullable=True, index=True)
+    content_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    duplicate_of_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("telegram_messages.id"), nullable=True, index=True
+    )
+    classification_result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
 
 class JobPost(Timestamped, Base):
