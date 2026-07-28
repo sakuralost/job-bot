@@ -1,0 +1,5 @@
+FROM job-bot-web:latest
+WORKDIR /app
+COPY app ./app
+COPY worker ./worker
+CMD ["uvicorn", "app.dashboard_v2:app", "--host", "0.0.0.0", "--port", "8888"]

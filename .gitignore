@@ -7,7 +7,7 @@
 *.session-journal
 secrets/
 
-# 真实监控来源/筛选关键词属于个人配置，只提交 .example 模板
+# Personal source and filtering configuration
 config/monitored_chats.yaml
 config/filters.yaml
 config/sources.json
@@ -16,6 +16,8 @@ config/preferences.json
 # Runtime data
 data/*.db
 data/*.sqlite*
+data/*.lock
+data/*.log
 data/backups/
 data/ollama/
 logs/
@@ -28,3 +30,5 @@ __pycache__/
 .venv/
 node_modules/
 dist/
+
+# 真实监控来源和筛选关键词属于个人配置，公开仓库只保留 .example 模板。

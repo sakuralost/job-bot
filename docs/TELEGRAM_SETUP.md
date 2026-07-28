@@ -34,4 +34,4 @@ docker compose run --rm --no-deps app python -m worker.login
 
 1. 复制 `config/monitored_chats.yaml.example` 为 `config/monitored_chats.yaml`，填入要监控的群组/频道的 `telegram_chat_id`（可在已授权的会话里现场解析获得，不要依赖会变化的显示名称）。
 2. 运行 `docker compose run --rm app python -m worker.seed_chats` 导入数据库。
-3. 首次手动跑一遍确认无误后，定时任务会按 `app/config.py` 里 `scan_times` 配置的时间自动运行（默认每天一次，因为本地 LLM 推理较慢，一天一次足够，也把 GPU 资源留给其他用途）；定时任务只读取新增消息，不会发送 Telegram 消息。
+3. 首次手动跑一遍确认无误后，可在网页工作台的“自动检测计划”中启用任务、设置每天次数和具体时间；计划保存后无需重启服务。自动任务只读取新增消息，不会发送 Telegram 消息。
