@@ -7,7 +7,7 @@ COPY worker ./worker
 COPY config ./config
 COPY alembic ./alembic
 COPY alembic.ini ./
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple .
 RUN mkdir -p /app/data
 EXPOSE 8888
 CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8888"]

@@ -1,0 +1,20 @@
+{
+  "sources": [
+    {"provider": "greenhouse", "board": "coinbase", "company": "Coinbase", "enabled": true},
+    {"provider": "greenhouse", "board": "consensys", "company": "Consensys", "enabled": true},
+    {"provider": "greenhouse", "board": "fireblocks", "company": "Fireblocks", "enabled": true},
+    {"provider": "greenhouse", "board": "ripple", "company": "Ripple", "enabled": true},
+    {"provider": "greenhouse", "board": "nansen", "company": "Nansen", "enabled": true},
+    {"provider": "greenhouse", "board": "bitgo", "company": "BitGo", "enabled": true},
+    {"provider": "greenhouse", "board": "figment", "company": "Figment", "enabled": true},
+    {"provider": "greenhouse", "board": "gemini", "company": "Gemini", "enabled": true},
+    {"provider": "ashby", "board": "phantom", "company": "Phantom", "enabled": true},
+    {"provider": "ashby", "board": "opensea", "company": "OpenSea", "enabled": true},
+    {"provider": "ashby", "board": "uniswap", "company": "Uniswap Labs", "enabled": true},
+    {"provider": "ashby", "board": "mystenlabs", "company": "Mysten Labs", "enabled": true},
+    {"provider": "ashby", "board": "alchemy", "company": "Alchemy", "enabled": true},
+    {"provider": "lever", "board": "gate", "company": "Gate", "enabled": true},
+    {"provider": "lever", "board": "binance", "company": "Binance", "enabled": true},
+    {"provider": "lever", "board": "kraken", "company": "Kraken", "enabled": true}
+  ]
+}

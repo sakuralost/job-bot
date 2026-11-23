@@ -57,6 +57,10 @@ class JobClassificationResult(BaseModel):
     salary: str | None = None
     language_requirement: str | None = None
     english_speaking_required: bool | None = None
+    chinese_friendly_level: Literal[
+        "explicit_chinese", "no_english_requirement", "needs_confirmation", "english_required"
+    ] = "needs_confirmation"
+    chinese_friendly_reason: str | None = None
     experience_requirement: str | None = None
     job_description: str | None = None
     job_summary: str | None = None

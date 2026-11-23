@@ -1,5 +1,4 @@
-# 规则初筛关键词模板：复制为 filters.yaml 并换成你自己的目标岗位/招聘信号/排除词。
-# 命中 target_roles + recruitment_intent 才进入 LLM 复核；命中 hard_keywords 直接排除。
+# 规则初筛关键词模板：复制为 filters.yaml 并换成你自己的目标岗位、招聘信号和排除词。
 target_roles:
   include:
     - product manager

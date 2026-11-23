@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-env_file="/etc/job-bot/job-bot.env"
+env_file="/home/ubuntu/job-bot/job-bot.env"
 [[ -f "$env_file" ]] || { echo "缺少 $env_file"; exit 1; }
 read -r -p "Telegram API_ID: " telegram_api_id
 read -r -s -p "Telegram API_HASH（输入不回显）: " telegram_api_hash; echo
@@ -24,4 +24,4 @@ for key, value in updates.items():
 path.write_text("\n".join(lines) + "\n")
 path.chmod(0o600)
 PY
-echo "凭据已仅保存到本地受限配置文件；下一步请运行 worker/login.py 完成验证码登录。"
+echo "凭据已仅保存到本机 job-bot.env；下一步请运行 worker.login 完成验证码登录。"

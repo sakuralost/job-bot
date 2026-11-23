@@ -1,0 +1,18 @@
+{
+  "role_keywords": [
+    "产品经理", "高级产品经理", "资深产品经理", "产品负责人", "产品总负责人", "产品总监", "产品专家", "产品策划",
+    "product manager", "product owner", "product lead", "senior product manager", "web3 pm", "web3 product manager",
+    "wallet product manager", "exchange product manager", "crypto product manager", "defi product manager", "blockchain product manager"
+  ],
+  "recruitment_keywords": [
+    "招聘", "急招", "内推", "招募", "岗位", "职位", "社招", "校招", "hc", "招人",
+    "hiring", "opening", "vacancy", "looking for", "referral", "we are hiring", "job opening", "position"
+  ],
+  "excluded_keywords": [
+    "博彩", "赌博", "赌场", "彩票", "体育盘", "体育投注", "百家乐", "棋牌", "老虎机", "赌场游戏",
+    "casino", "gambling", "betting", "sportsbook", "sports betting", "poker", "slot game",
+    "成人", "色情", "裸聊", "陪聊", "陪酒", "escort", "porn", "pornography", "adult content",
+    "包网", "白标博彩", "游戏包网", "博彩平台", "黑彩平台", "资金盘", "跑分", "杀猪盘", "灰产", "洗钱", "人头户", "诈骗", "钓鱼",
+    "ponzi", "money laundering", "pig butchering", "fraud", "phishing", "scam"
+  ]
+}

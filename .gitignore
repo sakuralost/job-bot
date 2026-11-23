@@ -7,15 +7,17 @@
 *.session-journal
 secrets/
 
-# 真实监控来源/筛选关键词属于个人配置，只提交 .example 模板
-config/monitored_chats.yaml
-config/filters.yaml
-config/sources.json
-config/preferences.json
+# Local credentials. Never commit real API keys, tokens, or database passwords.
+job-bot.env
+job-bot.env.*
+*.bak
+*.bak-*
 
 # Runtime data
 data/*.db
 data/*.sqlite*
+data/*.lock
+data/*.log
 data/backups/
 data/ollama/
 logs/
@@ -28,3 +30,5 @@ __pycache__/
 .venv/
 node_modules/
 dist/
+
+# 招聘来源和关键词保留在仓库里。密钥、会话和模型接口地址只留在本机环境文件。

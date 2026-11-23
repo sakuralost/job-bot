@@ -1,17 +1,786 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>job-bot</title><style>body{font:15px system-ui;max-width:1280px;margin:28px auto;padding:0 18px;color:#172033;background:#f8fafc}.muted,.meta{color:#64748b}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card,form,.item{background:#fff;border:1px solid #dbe3ef;border-radius:12px;padding:16px;margin:14px 0}.n{font-size:28px;font-weight:700}input,select,button{padding:8px;margin:4px;border:1px solid #94a3b8;border-radius:7px}button{background:#0f766e;color:#fff;border:0;cursor:pointer}.item{border-left:4px solid #0f766e}.item.saved{border-left-color:#2563eb}.item.contacted{border-left-color:#7c3aed}.item.ignored{opacity:.62;border-left-color:#94a3b8}pre{white-space:pre-wrap;line-height:1.5;margin:12px 0}.chips a{display:inline-block;padding:5px 9px;margin:3px;background:#e2e8f0;border-radius:20px;color:#334155;text-decoration:none}.chips a.active{background:#0f766e;color:#fff}.tag{display:inline-block;padding:2px 8px;margin:2px 4px 2px 0;border-radius:10px;font-size:12px;background:#e2e8f0;color:#334155}.tag.remote{background:#dcfce7;color:#166534}.actions{display:flex;flex-wrap:wrap;gap:5px}.actions button:nth-child(2){background:#64748b}.actions button:nth-child(3){background:#7c3aed}@media(max-width:720px){.grid{grid-template-columns:1fr}}</style></head><body>
-<h1>job-bot</h1><p class="muted">产品岗位机会工作台：LLM 会按岗位段落拆分多岗位消息，只保留产品经理相关判断；原消息始终可从 Telegram 打开。</p>
-<div class="grid"><div class="card"><div class="n">{{ stats.sources }}</div>启用来源</div><div class="card"><div class="n">{{ stats.messages }}</div>已读取消息</div><div class="card"><div class="n">{{ states.get('new',0) }}</div>待处理</div><div class="card"><div class="n">{{ states.get('contacted',0) }}</div>已联系</div></div>
-<div class="chips"><a class="{{ 'active' if not state else '' }}" href="/">全部 {{ total_jobs }}</a>{% for key,label in [('new','待处理'),('saved','保留'),('contacted','已联系'),('ignored','已忽略')] %}<a class="{{ 'active' if state==key else '' }}" href="/?state={{key}}">{{label}} {{states.get(key,0)}}</a>{% endfor %}</div>
-<form method="get"><input name="q" value="{{q}}" placeholder="搜索公司、岗位、摘要"><input type="hidden" name="state" value="{{state}}"><button>筛选</button></form>
-{% if latest_run %}<p class="meta">最近扫描：{{ latest_run.status }}，{{ latest_run.finished_at or '进行中' }}，读取 {{ latest_run.total_messages }} 条，规则候选 {{ latest_run.rule_candidates }} 条，LLM 命中 {{ latest_run.accepted_jobs if latest_run.accepted_jobs else '—' }} 条。筛选规则见服务器 config/filters.yaml，LLM 提示词见 app/classifier/llm_client.py。</p>{% endif %}
-<h2>候选机会</h2>{% for job in jobs %}<article class="item {{job.status}}">
-<b>{{ job.company_name or '公司未知' }} · {{ job.job_title or '岗位未知' }}</b> · 匹配度 {{ '%.0f'|format(job.confidence*100) }}% · {{ {'new':'待处理','saved':'保留','contacted':'已联系','ignored':'已忽略'}.get(job.status, job.status) }}
-<div>{% if job.work_mode=='remote' %}<span class="tag remote">远程</span>{% elif job.work_mode!='unknown' %}<span class="tag">{{job.work_mode}}</span>{% endif %}{% if job.location %}<span class="tag">{{job.location}}</span>{% endif %}{% if job.salary %}<span class="tag">{{job.salary}}</span>{% endif %}{% if job.industry %}<span class="tag">{{job.industry}}</span>{% endif %}</div>
-<div class="meta">{{ job.source_link or '' }} · {{ job.message_date or '未知时间' }}{% if job.sender %} · 发送者：{{ job.sender }}{% endif %}</div>
-{% if job.role_match_reason %}<p class="meta"><b>匹配理由：</b>{{ job.role_match_reason }}</p>{% endif %}
-<pre>{{ job.job_summary or job.job_description or '（无摘要）' }}</pre>
-{% if job.contacts %}<p class="meta"><b>联系方式：</b>{% for c in job.contacts %}{{ c.contact_type }}: {{ c.contact_value }}{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
-{% if job.source_url %}<p><a href="{{ job.source_url }}" target="_blank">打开原消息</a></p>{% endif %}
-<form class="actions" method="post" action="/opportunities/{{ job.id }}/status"><input type="hidden" name="return_state" value="{{state}}"><button name="value" value="saved">保留</button><button name="value" value="ignored">忽略</button><button name="value" value="contacted">已联系</button></form>
-</article>{% else %}<p class="muted">当前筛选条件下暂无结果。</p>{% endfor %}
-</body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>job-bot</title>
+  <style>
+    body{font:15px system-ui;max-width:1280px;margin:28px auto;padding:0 18px;color:#172033;background:#f8fafc}
+    .muted,.meta{color:#64748b}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .card,form,.item{background:#fff;border:1px solid #dbe3ef;border-radius:12px;padding:16px;margin:14px 0}
+    .n{font-size:28px;font-weight:700}input,select,button,textarea{padding:8px;margin:4px;border:1px solid #94a3b8;border-radius:7px}
+    textarea{box-sizing:border-box;width:100%;margin:8px 0;font:13px ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5;resize:vertical}
+    input.wide{box-sizing:border-box;width:100%;margin:8px 0}button{background:#0f766e;color:#fff;border:0;cursor:pointer}
+    button.secondary{background:#475569}.item{border-left:4px solid #0f766e}.item.saved{border-left-color:#2563eb}
+    .item.contacted{border-left-color:#7c3aed}.item.ignored{opacity:.62;border-left-color:#94a3b8}
+    .item{transition:opacity .18s ease,transform .18s ease}.item.removing{opacity:0;transform:translateX(12px)}
+    pre{white-space:pre-wrap;line-height:1.5;margin:12px 0}.chips a{display:inline-block;padding:5px 9px;margin:3px;background:#e2e8f0;border-radius:20px;color:#334155;text-decoration:none}
+    .chips a.active{background:#0f766e;color:#fff}.tag{display:inline-block;padding:2px 8px;margin:2px 4px 2px 0;border-radius:10px;font-size:12px;background:#e2e8f0;color:#334155}
+    .tag.remote,.tag.ready{background:#dcfce7;color:#166534}.tag.warn{background:#fef3c7;color:#92400e}
+    .actions{display:flex;flex-wrap:wrap;gap:5px}.ignore-trigger,.confirm-ignore{background:#64748b}.contacted-action{background:#7c3aed}
+    .ignore-reason-panel{flex:1 0 100%;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;margin-top:6px}
+    .ignore-reason-panel label{display:block}.ignore-reason-panel textarea{width:100%;box-sizing:border-box;margin:8px 0}
+    .history{border-top:1px solid #e2e8f0;padding:10px 0}.history form{display:inline;border:0;padding:0;margin:0;background:transparent}
+    summary{cursor:pointer;font-weight:600}.settings-panel>summary{font-size:18px;padding:4px}.settings-body{padding-top:10px}
+    .settings-toggle-hint{float:right;font-size:13px;color:#64748b}.settings-panel:not([open]) .settings-toggle-hint::after{content:"点击展开"}.settings-panel[open] .settings-toggle-hint::after{content:"点击收起"}
+    .settings-collapse-row{display:flex;justify-content:flex-end;margin-top:14px}
+    .schedule-grid{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:8px;margin:10px 0}.schedule-time label{display:block;font-size:13px;color:#64748b}.schedule-time input{box-sizing:border-box;width:100%;margin:4px 0}
+    .original-message{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin:12px 0}
+    .original-message h3{margin:0 0 8px}.model-details{margin:10px 0}
+    .workflow-block{padding:12px;background:#f8fafc;border-radius:9px}
+    .workflow-block h3{margin:0 0 8px}.workflow-line{display:flex;justify-content:space-between;gap:12px;align-items:center}
+    .workflow-block form{background:transparent;border:0;border-radius:0;padding:0;margin:8px 0}
+    .workflow-heading{margin-bottom:10px}.workflow-heading h2{margin:0}.workflow-heading form{margin:0;padding:0;border:0;background:transparent}
+    .history-progress{margin-top:10px}.history-progress summary{color:#475569}
+    progress{width:100%;height:18px;accent-color:#0f766e}.hidden{display:none}
+    .filter-heading{align-items:flex-start}.filter-heading h2{margin:0 0 4px}.filter-metrics{display:grid;grid-template-columns:repeat(5,minmax(100px,1fr));gap:10px;margin:14px 0}
+    .filter-metric{background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;padding:12px;min-height:74px}.filter-metric b{display:block;font-size:25px;color:#0f766e}.filter-metric>span{display:block;font-weight:600;margin-top:2px}.filter-metric small{display:block;color:#64748b;margin-top:4px;line-height:1.35}
+    .filter-chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.chart-panel{border-top:1px solid #e2e8f0;padding-top:12px}.chart-panel h3{margin:0 0 10px;font-size:15px}.bar-row{display:grid;grid-template-columns:minmax(120px,1fr) 2fr 34px;gap:8px;align-items:center;margin:9px 0}.bar-label{font-size:13px;color:#334155}.bar-track{height:12px;background:#e2e8f0;border-radius:99px;overflow:hidden}.bar-fill{height:100%;background:#0f766e;border-radius:99px;min-width:2px}.bar-value{text-align:right;font-weight:600;color:#0f766e}.chart-empty{color:#64748b;font-size:13px;padding:8px 0}
+    .filter-controls{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px}.filter-controls label{display:flex;flex-direction:column;gap:2px;color:#475569;font-size:13px}.filter-controls input{margin:0}.filter-controls button{margin:0}.filter-control-status{flex:1 0 100%;margin:0}
+    button:disabled{background:#94a3b8;cursor:not-allowed}.action-error{color:#b91c1c;margin:8px 4px 0}
+    .source-card{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .source-card button{font-size:13px}.source-dialog{width:min(560px,calc(100vw - 32px));border:0;border-radius:14px;padding:0;box-shadow:0 24px 70px #0f172a55}
+    .source-dialog::backdrop{background:#0f172a88}.source-dialog-body{padding:18px}.source-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .source-dialog-header h2{margin:0}.source-dialog-header button{background:#e2e8f0;color:#334155;font-size:18px}
+    .source-dialog form{padding:0;border:0;margin:16px 0;background:transparent}.source-list{border-top:1px solid #e2e8f0}
+    .source-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px;border-bottom:1px solid #e2e8f0}
+    .source-row button{flex:0 0 auto}.source-empty{padding:16px 2px}.source-add-result{color:#166534;margin:8px 4px 0}
+    @media(max-width:720px){.grid{grid-template-columns:1fr}}
+    @media(max-width:720px){.workflow-heading{align-items:flex-start;flex-direction:column}}
+    @media(max-width:720px){.schedule-grid{grid-template-columns:1fr 1fr}}
+    @media(max-width:900px){.filter-metrics{grid-template-columns:repeat(3,1fr)}.filter-chart-grid{grid-template-columns:1fr}}
+    @media(max-width:520px){.filter-metrics{grid-template-columns:repeat(2,1fr)}.bar-row{grid-template-columns:120px 1fr 28px}}
+  </style>
+</head>
+<body>
+  <h1>job-bot</h1>
+  <p class="muted">产品岗位机会工作台：先用关键词规则排除明显无关消息，再由 81 本地语言模型进行语义复核；原消息始终可从 Telegram 打开。</p>
+
+  <div class="grid">
+    <div class="card source-card">
+      <div><div class="n" data-source-count>{{ stats.sources }}</div>启用来源<div class="meta">{{ stats.telegram_sources }} Telegram · {{ stats.web_sources }} 网站</div></div>
+      <button class="secondary" id="manage-sources" type="button">管理</button>
+    </div>
+    <div class="card"><div class="n">{{ stats.messages }}</div>已读取消息</div>
+    <div class="card"><div class="n" data-state-count="new">{{ states.get('new',0) }}</div>待处理</div>
+    <div class="card"><div class="n" data-state-count="contacted">{{ states.get('contacted',0) }}</div>已联系</div>
+    <div class="card"><div class="n">{{ stats.duplicates }}</div>已合并重复</div>
+  </div>
+
+  <dialog class="source-dialog" id="source-dialog">
+    <div class="source-dialog-body">
+      <div class="source-dialog-header">
+        <h2>管理来源</h2>
+        <button id="close-source-dialog" type="button" aria-label="关闭">×</button>
+      </div>
+      <p class="muted">屏蔽只停止后续读取，不会删除历史消息或已保存职位；随时可重新启用。Telegram 新来源首次回看近 {{ source_history_days }} 天，网站来源只检索近 7 天发布的职位。</p>
+      <form id="add-source-form" method="post" action="/sources">
+        <label for="source-ref"><b>添加 Telegram 公开链接或用户名</b></label>
+        <input class="wide" id="source-ref" name="source_ref" required
+          placeholder="例如：https://t.me/hrhrwork">
+        <button id="add-source-button" type="submit">添加来源</button>
+        <p class="action-error hidden" id="source-error"></p>
+        <p class="source-add-result hidden" id="source-result"></p>
+      </form>
+      <h3>Telegram 消息来源</h3>
+      <div class="source-list" id="telegram-source-list">
+        {% for source in telegram_sources %}
+        <div class="source-row" data-source-id="{{ source.id }}">
+          <div>
+            <b>{{ source.title }}</b>
+            <div class="meta">{% if source.username %}@{{ source.username }}{% else %}已授权私密来源{% endif %} · {% if source.enabled %}已启用{% else %}已屏蔽{% endif %}</div>
+          </div>
+          <button class="secondary toggle-source" type="button" data-source-kind="telegram"
+            data-source-id="{{ source.id }}" data-source-title="{{ source.title }}" data-source-enabled="{{ source.enabled | lower }}">{% if source.enabled %}屏蔽{% else %}启用{% endif %}</button>
+        </div>
+        {% else %}
+        <p class="muted source-empty">暂时没有消息来源。</p>
+        {% endfor %}
+      </div>
+      <h3>网站职位来源</h3>
+      <div class="source-list" id="web-source-list">
+        {% for source in web_sources %}
+        <div class="source-row" data-source-id="{{ source.id }}">
+          <div>
+            <b>{{ source.title }}</b>
+            <div class="meta">近 {{ source.lookback_days }} 天 · {% if source.enabled %}已启用{% else %}已屏蔽{% endif %}{% if source.last_error %} · 上次读取异常{% endif %}</div>
+          </div>
+          <button class="secondary toggle-source" type="button" data-source-kind="web"
+            data-source-id="{{ source.id }}" data-source-title="{{ source.title }}" data-source-enabled="{{ source.enabled | lower }}">{% if source.enabled %}屏蔽{% else %}启用{% endif %}</button>
+        </div>
+        {% else %}
+        <p class="muted source-empty">网站来源正在初始化，请刷新页面。</p>
+        {% endfor %}
+      </div>
+    </div>
+  </dialog>
+
+  {% set reclassification = workflow.reclassification %}
+  {% set manual_scan = workflow.manual_scan %}
+  {% set filter_stats = workflow.filter_stats %}
+  <section class="card" id="workflow-status">
+    <div class="workflow-line workflow-heading">
+      <h2>检测与模型筛选进度</h2>
+      <form id="scan-now-form" method="post" action="/scan-now">
+        <button id="scan-now-button" type="submit" title="从每个来源上次成功记录的位置继续"
+          {% if manual_scan and manual_scan.active %}disabled{% endif %}>
+          {% if manual_scan and manual_scan.active %}检测进行中{% else %}立即检测新消息{% endif %}
+        </button>
+      </form>
+    </div>
+    <div class="workflow-block">
+      <div class="workflow-line">
+        <strong id="manual-phase">
+          {% if manual_scan %}{{ manual_scan.status_text }}{% else %}等待检测{% endif %}
+        </strong>
+        <b id="manual-percent">
+          {% if manual_scan and manual_scan.status == 'scanning' %}{{ manual_scan.messages_found }} 条
+          {% elif manual_scan %}{{ manual_scan.percent }}%
+          {% else %}0%{% endif %}
+        </b>
+      </div>
+      <progress id="manual-progress" max="100"
+        {% if not manual_scan or manual_scan.status not in ['queued', 'scanning'] %}
+        value="{{ manual_scan.percent if manual_scan else 0 }}"
+        {% endif %}></progress>
+      <p class="meta" id="manual-summary">
+        {% if manual_scan and manual_scan.status == 'classifying' %}
+        已读 {{ manual_scan.messages_found }} 条 · LLM 已筛 {{ manual_scan.processed }}/{{ manual_scan.total }} 条
+        · 剩余 {{ manual_scan.remaining }} 条 · 预计 {{ manual_scan.remaining_text }}
+        {% elif manual_scan and manual_scan.status == 'scanning' %}
+        已读 {{ manual_scan.messages_found }} 条 · 规则候选 {{ manual_scan.rule_candidates }} 条
+        {% elif manual_scan and manual_scan.status == 'completed' %}
+        上次完成 {{ manual_scan.finished_at }} · 已读 {{ manual_scan.messages_found }} 条
+        · LLM 已筛 {{ manual_scan.processed }} 条
+        {% elif manual_scan %}
+        已读 {{ manual_scan.messages_found }} 条 · LLM 已筛 {{ manual_scan.processed }}/{{ manual_scan.total }} 条
+        {% elif workflow.latest_scan and workflow.latest_scan.finished_at %}
+        上次完成 {{ workflow.latest_scan.finished_at }} · 已读 {{ workflow.latest_scan.messages }} 条
+        {% else %}
+        尚未检测
+        {% endif %}
+      </p>
+    </div>
+    {% if reclassification %}
+    <details class="history-progress">
+      <summary>历史重筛 · {{ reclassification.percent }}%</summary>
+      <div class="workflow-block">
+        <div class="workflow-line">
+          <h3>LLM 历史重筛</h3>
+          <b id="reclass-percent">{{ reclassification.percent if reclassification else 0 }}%</b>
+        </div>
+        <progress id="reclass-progress" max="100" value="{{ reclassification.percent if reclassification else 0 }}"></progress>
+        <p id="reclass-status">
+          {% if reclassification %}
+          {{ reclassification.status_text }} · 提示词 v{{ reclassification.prompt_version }}
+          · 已处理 {{ reclassification.processed }}/{{ reclassification.total }} 条
+          {% else %}
+          暂无历史重筛任务
+          {% endif %}
+        </p>
+        <p class="meta" id="reclass-eta">
+          {% if reclassification and reclassification.status == 'running' %}
+          预计剩余 {{ reclassification.remaining_text }}
+          {% if reclassification.expected_finish %} · 预计 {{ reclassification.expected_finish }} 完成{% endif %}
+          {% elif reclassification and reclassification.status == 'completed' %}
+          本轮历史重筛已经完成
+          {% else %}
+          处理第一批消息后会自动计算预计时间
+          {% endif %}
+        </p>
+        <p class="meta" id="reclass-counts">
+          {% if reclassification %}
+          保留 {{ reclassification.accepted }} 条 · 排除 {{ reclassification.excluded }} 条
+          · 重复 {{ reclassification.duplicate }} 条 · 错误 {{ reclassification.errors }} 条
+          {% endif %}
+        </p>
+      </div>
+    </details>
+    {% endif %}
+  </section>
+
+  <details class="card settings-panel" id="filter-statistics" open>
+    <summary class="workflow-line filter-heading">
+      <div>
+        <h2>筛选统计</h2>
+        <p class="muted" id="filter-window">统计窗口：{{ filter_stats.window }} · 扫描 {{ filter_stats.runs }} 次</p>
+      </div>
+      <span class="settings-toggle-hint" aria-hidden="true"></span>
+    </summary>
+    <div class="filter-controls">
+      <label for="filter-start-date">开始日期
+        <input id="filter-start-date" type="date" value="{{ filter_stats.start_date }}">
+      </label>
+      <label for="filter-end-date">结束日期
+        <input id="filter-end-date" type="date" value="{{ filter_stats.end_date }}">
+      </label>
+      <button id="filter-apply" type="button">应用日期筛选</button>
+      <button id="filter-reset" class="secondary" type="button">恢复上次扫描</button>
+      <p class="meta filter-control-status" id="filter-control-status">默认显示最近一次完成的扫描</p>
+    </div>
+    <div class="filter-metrics">
+      <div class="filter-metric"><b id="filter-new-messages">{{ filter_stats.new_messages }}</b><span>新增消息</span><small>关注频道本轮未读</small></div>
+      <div class="filter-metric"><b id="filter-recruitment-messages">{{ filter_stats.recruitment_messages }}</b><span>招聘信息</span><small>新增里判定为招聘</small></div>
+      <div class="filter-metric"><b id="filter-duplicates-removed">{{ filter_stats.duplicates_removed }}</b><span>去掉重复</span><small>招聘信息中的重复</small></div>
+      <div class="filter-metric"><b id="filter-model-rejected">{{ filter_stats.model_rejected }}</b><span>模型筛掉</span><small>不符合要求</small></div>
+      <div class="filter-metric"><b id="filter-valid-new">{{ filter_stats.valid_new }}</b><span>有效新增</span><small>本轮新进入待处理</small></div>
+    </div>
+    <div class="filter-chart-grid">
+      <div class="chart-panel">
+        <h3>筛选流程</h3>
+        <div id="filter-flow-chart"></div>
+      </div>
+      <div class="chart-panel">
+        <h3>模型过滤原因</h3>
+        <div id="filter-reasons-chart"></div>
+      </div>
+    </div>
+    <p class="meta" id="filter-stats-note">{{ filter_stats.note }}</p>
+  </details>
+
+  <details class="card settings-panel" id="scan-schedule">
+    <summary>
+      自动检测计划
+      · {% if scan_schedule.enabled %}每天 {{ scan_schedule.count }} 次（{{ scan_schedule.summary }}）{% else %}已暂停{% endif %}
+      <span class="settings-toggle-hint" aria-hidden="true"></span>
+    </summary>
+    <div class="settings-body">
+      <form method="post" action="/settings/scan-schedule" id="scan-schedule-form">
+        <label>
+          <input type="checkbox" name="enabled" {% if scan_schedule.enabled %}checked{% endif %}>
+          启用自动检测
+        </label>
+        <label for="scan-count"><b>每天检测次数</b></label>
+        <select id="scan-count" name="scan_count">
+          {% for count in range(1, scan_schedule.max_count + 1) %}
+          <option value="{{ count }}" {% if count == scan_schedule.count %}selected{% endif %}>{{ count }} 次</option>
+          {% endfor %}
+        </select>
+        <div class="schedule-grid" id="schedule-times">
+          {% for index in range(scan_schedule.max_count) %}
+          <div class="schedule-time {% if index >= scan_schedule.count %}hidden{% endif %}" data-schedule-index="{{ index }}">
+            <label for="scan-time-{{ index }}">第 {{ index + 1 }} 次</label>
+            <input id="scan-time-{{ index }}" type="time" name="scan_times"
+              value="{{ scan_schedule.scan_times[index] if index < scan_schedule.count else '' }}"
+              {% if index >= scan_schedule.count %}disabled{% else %}required{% endif %}>
+          </div>
+          {% endfor %}
+        </div>
+        <button type="submit">保存自动检测计划</button>
+      </form>
+    </div>
+  </details>
+
+  <details class="card settings-panel" id="llm-settings">
+    <summary>
+      本地语言模型筛选设置
+      · {{ llm_model }}
+      · 提示词 v{{ active_prompt.version }}
+      {% if llm_ready %}<span class="tag ready">已接入</span>{% else %}<span class="tag warn">配置不完整</span>{% endif %}
+      <span class="settings-toggle-hint" aria-hidden="true"></span>
+    </summary>
+    <div class="settings-body">
+    <p>
+      当前模型：<b>{{ llm_model }}</b>
+      {% if llm_ready %}<span class="tag ready">已接入工作流</span>{% else %}<span class="tag warn">配置不完整</span>{% endif %}
+      · 当前提示词：<b>v{{ active_prompt.version }}</b>
+      {% if active_prompt.is_default %}（系统内置默认版本）{% endif %}
+    </p>
+    <p class="muted">保存后会生成新版本，并从下一条尚未开始复核的消息起生效。已经筛选完成的岗位不会自动重跑。为保证模型结果能被系统读取，必要的 JSON 字段不能删除。人工填写的忽略原因会作为附加偏好自动提供给新岗位筛选，不会改写这里保存的提示词版本。</p>
+    <form method="post" action="/settings/llm-prompt">
+      <label for="system_prompt"><b>筛选提示词</b></label>
+      <textarea id="system_prompt" name="system_prompt" rows="24" minlength="200" maxlength="20000" required>{{ active_prompt.system_prompt }}</textarea>
+      <label for="change_note"><b>本次修改说明（可选）</b></label>
+      <input class="wide" id="change_note" name="change_note" maxlength="500" placeholder="例如：降低未明确远程岗位的优先级">
+      <button type="submit">保存并启用新版本</button>
+    </form>
+    <form method="post" action="/settings/llm-prompt/reset">
+      <button class="secondary" type="submit">恢复系统默认并生成新版本</button>
+    </form>
+    {% if prompt_history %}
+    <details>
+      <summary>查看和恢复历史版本</summary>
+      {% for item in prompt_history %}
+      <div class="history">
+        <b>v{{ item.version }}</b>
+        {% if item.is_active %}<span class="tag ready">当前使用</span>{% endif %}
+        · {{ item.created_at or '未知时间' }}
+        · {{ item.change_note or '未填写修改说明' }}
+        {% if not item.is_active %}
+        <form method="post" action="/settings/llm-prompt/{{ item.id }}/activate">
+          <button class="secondary" type="submit">恢复此版本</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </details>
+    {% endif %}
+    <div class="settings-collapse-row">
+      <button class="secondary" id="collapse-llm-settings" type="button">收起提示词设置</button>
+    </div>
+    </div>
+  </details>
+
+  <div class="chips">
+    <a class="{{ 'active' if not state and not category else '' }}" href="/">待处理候选 <span data-state-count="new">{{ total_jobs }}</span></a>
+    <a class="{{ 'active' if category=='app' and not state else '' }}" href="/?category=app">APP 产品经理 <span data-app-count>{{ app_jobs }}</span></a>
+    <a href="/?language=chinese">中文友好 <span>{{ chinese_friendly_jobs }}</span></a>
+    <a href="/?language=confirmation">语言待确认</a>
+    {% for key,label in [('saved','保留'),('contacted','已联系'),('ignored','已忽略')] %}
+    <a class="{{ 'active' if state==key else '' }}" href="/?state={{key}}">{{label}} <span data-state-count="{{key}}">{{states.get(key,0)}}</span></a>
+    {% endfor %}
+  </div>
+  <form method="get">
+    <input name="q" value="{{q}}" placeholder="搜索公司、岗位、摘要">
+    <input type="hidden" name="state" value="{{state}}">
+    <input type="hidden" name="category" value="{{category}}">
+    <input type="hidden" name="language" value="{{language}}">
+    <button>筛选</button>
+  </form>
+  {% if latest_run %}
+  <p class="meta">最近扫描：{{ latest_run.status }}，{{ latest_run.finished_at or '进行中' }}，读取 {{ latest_run.total_messages }} 条，规则候选 {{ latest_run.rule_candidates }} 条。模型复核结果以候选机会列表为准。</p>
+  {% endif %}
+
+  <h2>{{ list_title }}</h2>
+  <p class="muted">人工选择的保留、忽略和已联系状态优先于模型筛选；处理过的岗位会离开候选区，并在对应状态页长期保存。</p>
+  <section id="opportunities-list">
+  {% for job in jobs %}
+  <article class="item {{job.status}}" data-job-id="{{job.id}}" data-is-app="{{ 'true' if job.is_app_product_role else 'false' }}">
+    <b>{{ job.company_name or '公司未知' }} · {{ job.job_title or '岗位未知' }}</b>
+    · 匹配度 {{ '%.0f'|format(job.confidence*100) }}%
+    · {{ {'new':'待处理','saved':'保留','contacted':'已联系','ignored':'已忽略'}.get(job.status, job.status) }}
+    <div>
+      {% if job.work_mode=="remote" %}<span class="tag remote">远程</span>
+      {% elif job.work_mode!="unknown" %}<span class="tag">{{job.work_mode}}</span>{% endif %}
+      {% if job.is_app_product_role %}<span class="tag ready">APP 产品</span>{% endif %}
+      {% if job.location %}<span class="tag">{{job.location}}</span>{% endif %}
+      {% if job.salary %}<span class="tag">{{job.salary}}</span>{% endif %}
+      {% if job.industry %}<span class="tag">{{job.industry}}</span>{% endif %}
+      {% if job.chinese_friendly_label %}<span class="tag">{{job.chinese_friendly_label}}</span>{% endif %}
+    </div>
+    <div class="meta">
+      {{ job.source_link or '' }} · {{ job.message_date or '未知时间' }}
+      {% if job.sender %} · 发送者：{{ job.sender }}{% endif %}
+      {% if job.classification_prompt_version is not none %} · 模型提示词 v{{ job.classification_prompt_version }}{% endif %}
+    </div>
+    <p class="meta"><b>匹配理由：</b>{{ job.role_match_reason }}</p>
+    {% if job.chinese_friendly_reason %}<p class="meta"><b>中文友好判断：</b>{{ job.chinese_friendly_reason }}</p>{% endif %}
+    <div class="original-message">
+      <h3>职位原文</h3>
+      <pre>{{ job.original_message or "（原消息内容不可用）" }}</pre>
+    </div>
+    {% if job.job_summary or job.job_description %}
+    <details class="model-details" open>
+      <summary>模型整理的摘要</summary>
+      <pre>{{ job.job_summary or job.job_description }}</pre>
+    </details>
+    {% endif %}
+    {% if job.contacts %}
+    <p class="meta"><b>联系方式：</b>{% for c in job.contacts %}{{ c.contact_type }}: {{ c.contact_value }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+    {% endif %}
+    {% if job.ignore_reason %}
+    <p class="meta"><b>忽略原因：</b>{{ job.ignore_reason }}</p>
+    {% endif %}
+    {% if job.apply_url %}<p><a href="{{ job.apply_url }}" target="_blank">打开投递页面</a></p>{% elif job.source_url %}<p><a href="{{ job.source_url }}" target="_blank">打开职位来源</a></p>{% endif %}
+    <form class="actions" method="post" action="/opportunities/{{ job.id }}/status">
+      <input type="hidden" name="return_state" value="{{state}}">
+      <input type="hidden" name="return_category" value="{{category}}">
+      <button name="value" value="saved">保留</button>
+      <button class="ignore-trigger" type="button">忽略</button>
+      <button class="contacted-action" name="value" value="contacted">已联系</button>
+      <div class="ignore-reason-panel hidden">
+        <label><b>忽略原因</b>（会记录并用于后续岗位的模型匹配）</label>
+        <textarea name="ignore_reason" rows="3" maxlength="500" placeholder="例如：岗位偏增长方向，不符合当前求职目标">{{ job.ignore_reason or '' }}</textarea>
+        <button class="confirm-ignore" type="submit" name="value" value="ignored">确认忽略</button>
+        <button class="secondary cancel-ignore" type="button">取消</button>
+      </div>
+      <p class="action-error hidden" role="alert"></p>
+    </form>
+  </article>
+  {% else %}
+  <p class="muted empty-list">当前筛选条件下暂无结果。</p>
+  {% endfor %}
+  </section>
+  <script>
+    const sourceDialog = document.getElementById("source-dialog");
+    const sourceForm = document.getElementById("add-source-form");
+    const sourceError = document.getElementById("source-error");
+    const sourceResult = document.getElementById("source-result");
+    document.getElementById("manage-sources").addEventListener("click", () => sourceDialog.showModal());
+    document.getElementById("close-source-dialog").addEventListener("click", () => sourceDialog.close());
+    sourceDialog.addEventListener("click", (event) => {
+      if (event.target === sourceDialog) sourceDialog.close();
+    });
+    sourceForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = document.getElementById("add-source-button");
+      button.disabled = true;
+      sourceError.classList.add("hidden");
+      sourceResult.classList.add("hidden");
+      try {
+        const response = await fetch(sourceForm.action, {
+          method: "POST",
+          body: new FormData(sourceForm),
+          headers: {"Accept": "application/json"}
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "添加失败，请重试。");
+        sourceResult.textContent = result.created
+          ? `添加成功，首次会读取近 ${result.history_days} 天消息。`
+          : "来源已重新启用，将从原来的读取位置继续。";
+        sourceResult.classList.remove("hidden");
+        window.setTimeout(() => window.location.reload(), 650);
+      } catch (error) {
+        sourceError.textContent = error.message || "添加失败，请重试。";
+        sourceError.classList.remove("hidden");
+        button.disabled = false;
+      }
+    });
+
+    document.querySelectorAll(".toggle-source").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const enabled = button.dataset.sourceEnabled === "true";
+        const action = enabled ? "屏蔽" : "启用";
+        if (!window.confirm(`${action}“${button.dataset.sourceTitle}”？历史数据会保留。`)) return;
+        button.disabled = true;
+        sourceError.classList.add("hidden");
+        try {
+          const prefix = button.dataset.sourceKind === "web" ? "/web-sources" : "/sources";
+          const response = await fetch(`${prefix}/${button.dataset.sourceId}/toggle`, {
+            method: "POST",
+            headers: {"Accept": "application/json"}
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || "更新来源状态失败，请重试。");
+          window.location.reload();
+        } catch (error) {
+          sourceError.textContent = error.message || "更新来源状态失败，请重试。";
+          sourceError.classList.remove("hidden");
+          button.disabled = false;
+        }
+      });
+    });
+
+    const llmSettings = document.getElementById("llm-settings");
+    if (window.location.hash === "#llm-settings") {
+      llmSettings.open = true;
+    }
+    llmSettings.addEventListener("toggle", () => {
+      if (!llmSettings.open && window.location.hash === "#llm-settings") {
+        history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+    });
+    document.getElementById("collapse-llm-settings").addEventListener("click", () => {
+      llmSettings.open = false;
+      llmSettings.scrollIntoView({behavior: "smooth", block: "start"});
+    });
+
+    const scanCount = document.getElementById("scan-count");
+    const scheduleRows = document.querySelectorAll("[data-schedule-index]");
+    function updateScheduleRows() {
+      const count = Number.parseInt(scanCount.value, 10);
+      scheduleRows.forEach((row) => {
+        const input = row.querySelector('input[type="time"]');
+        const active = Number.parseInt(row.dataset.scheduleIndex, 10) < count;
+        row.classList.toggle("hidden", !active);
+        input.disabled = !active;
+        input.required = active;
+      });
+    }
+    scanCount.addEventListener("change", updateScheduleRows);
+    updateScheduleRows();
+
+    function updateWorkflow(data) {
+      const reclassification = data.reclassification;
+      const reclassProgress = document.getElementById("reclass-progress");
+      if (reclassification && reclassProgress) {
+        reclassProgress.value = reclassification.percent;
+        document.getElementById("reclass-percent").textContent = `${reclassification.percent}%`;
+        document.getElementById("reclass-status").textContent =
+          `${reclassification.status_text} · 提示词 v${reclassification.prompt_version} · 已处理 ${reclassification.processed}/${reclassification.total} 条`;
+        let eta = "处理第一批消息后会自动计算预计时间";
+        if (reclassification.status === "running") {
+          eta = `预计剩余 ${reclassification.remaining_text}`;
+          if (reclassification.expected_finish) {
+            eta += ` · 预计 ${reclassification.expected_finish} 完成`;
+          }
+        } else if (reclassification.status === "completed") {
+          eta = "本轮历史重筛已经完成";
+        }
+        document.getElementById("reclass-eta").textContent = eta;
+        document.getElementById("reclass-counts").textContent =
+          `保留 ${reclassification.accepted} 条 · 排除 ${reclassification.excluded} 条 · 重复 ${reclassification.duplicate} 条 · 错误 ${reclassification.errors} 条`;
+      }
+
+      const manual = data.manual_scan;
+      const button = document.getElementById("scan-now-button");
+      const progress = document.getElementById("manual-progress");
+      const phase = document.getElementById("manual-phase");
+      const percent = document.getElementById("manual-percent");
+      const summary = document.getElementById("manual-summary");
+      if (manual) {
+        phase.textContent = manual.status_text;
+        if (["queued", "scanning"].includes(manual.status)) {
+          progress.removeAttribute("value");
+          percent.textContent = manual.status === "scanning" ? `${manual.messages_found} 条` : "准备中";
+        } else {
+          progress.value = manual.percent;
+          percent.textContent = `${manual.percent}%`;
+        }
+        if (manual.status === "classifying") {
+          summary.textContent =
+            `已读 ${manual.messages_found} 条 · LLM 已筛 ${manual.processed}/${manual.total} 条 · 剩余 ${manual.remaining} 条 · 预计 ${manual.remaining_text}`;
+        } else if (manual.status === "scanning") {
+          summary.textContent = `已读 ${manual.messages_found} 条 · 规则候选 ${manual.rule_candidates} 条`;
+        } else if (manual.status === "completed") {
+          summary.textContent =
+            `上次完成 ${manual.finished_at} · 已读 ${manual.messages_found} 条 · LLM 已筛 ${manual.processed} 条`;
+        } else {
+          summary.textContent =
+            `已读 ${manual.messages_found} 条 · LLM 已筛 ${manual.processed}/${manual.total} 条`;
+        }
+        button.disabled = manual.active;
+        button.textContent = manual.active ? "检测进行中" : "立即检测新消息";
+      } else {
+        progress.value = 0;
+        phase.textContent = "等待检测";
+        percent.textContent = "0%";
+        const latest = data.latest_scan;
+        summary.textContent = latest && latest.finished_at
+          ? `上次完成 ${latest.finished_at} · 已读 ${latest.messages} 条`
+          : "尚未检测";
+        button.disabled = false;
+        button.textContent = "立即检测新消息";
+      }
+    }
+
+    function renderBars(targetId, items, emptyText) {
+      const container = document.getElementById(targetId);
+      if (!container) return;
+      container.replaceChildren();
+      if (!items || !items.length) {
+        const empty = document.createElement("p");
+        empty.className = "chart-empty";
+        empty.textContent = emptyText;
+        container.appendChild(empty);
+        return;
+      }
+      const max = Math.max(1, ...items.map((item) => Number(item.count) || 0));
+      items.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "bar-row";
+        const label = document.createElement("span");
+        label.className = "bar-label";
+        label.textContent = item.label;
+        const track = document.createElement("div");
+        track.className = "bar-track";
+        const fill = document.createElement("div");
+        fill.className = "bar-fill";
+        fill.style.width = `${Math.round((Number(item.count) || 0) * 100 / max)}%`;
+        track.appendChild(fill);
+        const value = document.createElement("span");
+        value.className = "bar-value";
+        value.textContent = String(Number(item.count) || 0);
+        row.append(label, track, value);
+        container.appendChild(row);
+      });
+    }
+
+    function updateFilterStats(stats) {
+      if (!stats) return;
+      const values = {
+        "filter-new-messages": stats.new_messages,
+        "filter-recruitment-messages": stats.recruitment_messages,
+        "filter-duplicates-removed": stats.duplicates_removed,
+        "filter-model-rejected": stats.model_rejected,
+        "filter-valid-new": stats.valid_new,
+      };
+      Object.entries(values).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = String(Number(value) || 0);
+      });
+      const windowLabel = document.getElementById("filter-window");
+      if (windowLabel) windowLabel.textContent = `统计窗口：${stats.window} · 扫描 ${stats.runs} 次`;
+      const note = document.getElementById("filter-stats-note");
+      if (note) note.textContent = stats.note || "";
+      renderBars("filter-flow-chart", stats.outcomes || [
+        {label: "新增消息", count: stats.new_messages},
+        {label: "招聘信息", count: stats.recruitment_messages},
+        {label: "去掉重复", count: stats.duplicates_removed},
+        {label: "模型筛掉", count: stats.model_rejected},
+        {label: "有效新增", count: stats.valid_new},
+      ], "最近三天暂无扫描结果");
+      renderBars("filter-reasons-chart", stats.reasons, "当前范围没有已完成的模型过滤结果");
+    }
+
+    let filterStatsCustom = false;
+    const filterStartDate = document.getElementById("filter-start-date");
+    const filterEndDate = document.getElementById("filter-end-date");
+    const filterApply = document.getElementById("filter-apply");
+    const filterReset = document.getElementById("filter-reset");
+    const filterControlStatus = document.getElementById("filter-control-status");
+
+    async function loadFilterStats(startDate, endDate) {
+      const params = new URLSearchParams();
+      if (startDate && endDate) {
+        params.set("start_date", startDate);
+        params.set("end_date", endDate);
+      }
+      const query = params.toString();
+      const response = await fetch(`/api/filter-stats${query ? `?${query}` : ""}`, {
+        headers: {"Accept": "application/json"},
+        cache: "no-store"
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "日期筛选失败，请重试。");
+      updateFilterStats(result);
+      return result;
+    }
+
+    filterApply.addEventListener("click", async () => {
+      const startDate = filterStartDate.value;
+      const endDate = filterEndDate.value;
+      if (!startDate || !endDate || startDate > endDate) {
+        filterControlStatus.textContent = "请选择有效的开始日期和结束日期。";
+        return;
+      }
+      filterApply.disabled = true;
+      try {
+        filterStatsCustom = true;
+        await loadFilterStats(startDate, endDate);
+        filterControlStatus.textContent = `已按 ${startDate} 至 ${endDate} 汇总`;
+      } catch (error) {
+        filterControlStatus.textContent = error.message || "日期筛选失败，请重试。";
+      } finally {
+        filterApply.disabled = false;
+      }
+    });
+
+    filterReset.addEventListener("click", async () => {
+      filterReset.disabled = true;
+      filterStatsCustom = false;
+      try {
+        const result = await loadFilterStats();
+        filterStartDate.value = result.start_date || "";
+        filterEndDate.value = result.end_date || "";
+        filterControlStatus.textContent = "已恢复最近一次完成的扫描";
+      } catch (error) {
+        filterControlStatus.textContent = error.message || "恢复失败，请重试。";
+      } finally {
+        filterReset.disabled = false;
+      }
+    });
+
+    async function refreshWorkflow() {
+      try {
+        const response = await fetch("/api/workflow-status", {
+          headers: {"Accept": "application/json"},
+          cache: "no-store"
+        });
+        if (response.ok) {
+          const data = await response.json();
+          updateWorkflow(data);
+          if (!filterStatsCustom) {
+            updateFilterStats(data.filter_stats);
+          }
+        }
+      } catch (_) {
+        // 网络短暂中断时保留页面最后一次成功状态，下一轮自动重试。
+      }
+    }
+
+    updateFilterStats({{ filter_stats | tojson }});
+
+    document.getElementById("scan-now-form").addEventListener("submit", () => {
+      const button = document.getElementById("scan-now-button");
+      button.disabled = true;
+      button.textContent = "正在启动检测";
+    });
+
+    function adjustCount(selector, delta) {
+      document.querySelectorAll(selector).forEach((element) => {
+        const current = Number.parseInt(element.textContent, 10) || 0;
+        element.textContent = String(Math.max(0, current + delta));
+      });
+    }
+
+    document.querySelectorAll("form.actions").forEach((form) => {
+      const ignoreTrigger = form.querySelector(".ignore-trigger");
+      const ignorePanel = form.querySelector(".ignore-reason-panel");
+      const ignoreReason = form.querySelector('textarea[name="ignore_reason"]');
+      const cancelIgnore = form.querySelector(".cancel-ignore");
+      const inlineError = form.querySelector(".action-error");
+
+      ignoreTrigger.addEventListener("click", () => {
+        ignorePanel.classList.remove("hidden");
+        inlineError.classList.add("hidden");
+        ignoreReason.focus();
+      });
+      cancelIgnore.addEventListener("click", () => {
+        ignorePanel.classList.add("hidden");
+        inlineError.classList.add("hidden");
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const submitter = event.submitter;
+        const card = form.closest("article.item");
+        const error = inlineError;
+        if (!submitter || !card) return;
+        if (submitter.value === "ignored" && !ignoreReason.value.trim()) {
+          error.textContent = "请填写忽略原因。";
+          error.classList.remove("hidden");
+          ignoreReason.focus();
+          return;
+        }
+
+        const buttons = form.querySelectorAll("button");
+        buttons.forEach((button) => { button.disabled = true; });
+        error.classList.add("hidden");
+
+        const formData = new FormData(form);
+        formData.set("value", submitter.value);
+        try {
+          const response = await fetch(form.action, {
+            method: "POST",
+            body: formData,
+            headers: {"Accept": "application/json"}
+          });
+          if (!response.ok) throw new Error("status update failed");
+          const result = await response.json();
+
+          if (result.previous_status !== result.status) {
+            adjustCount(`[data-state-count="${result.previous_status}"]`, -1);
+            adjustCount(`[data-state-count="${result.status}"]`, 1);
+            if (card.dataset.isApp === "true" && result.previous_status === "new") {
+              adjustCount("[data-app-count]", -1);
+            }
+          }
+
+          if (result.remove) {
+            card.classList.add("removing");
+            window.setTimeout(() => {
+              card.remove();
+              const list = document.getElementById("opportunities-list");
+              if (!list.querySelector("article.item") && !list.querySelector(".empty-list")) {
+                const empty = document.createElement("p");
+                empty.className = "muted empty-list";
+                empty.textContent = "当前筛选条件下暂无结果。";
+                list.appendChild(empty);
+              }
+            }, 180);
+          } else {
+            buttons.forEach((button) => { button.disabled = false; });
+          }
+        } catch (_) {
+          buttons.forEach((button) => { button.disabled = false; });
+          error.textContent = "操作失败，请重试。";
+          error.classList.remove("hidden");
+        }
+      });
+    });
+    refreshWorkflow();
+    setInterval(refreshWorkflow, 2000);
+  </script>
+</body>
+</html>

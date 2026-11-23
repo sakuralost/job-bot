@@ -1,0 +1,11 @@
+[Unit]
+Description=job-bot Telegram incremental scan
+After=docker.service
+
+[Service]
+Type=oneshot
+User=lost
+WorkingDirectory=/home/lost/lost/job-bot
+EnvironmentFile=/home/lost/.config/job-bot/job-bot.env
+ExecStart=/usr/bin/docker compose run --rm --no-deps web python -m worker.scanner
+ExecStartPost=/home/lost/lost/job-bot/scripts/sync_to_mac.sh

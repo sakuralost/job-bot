@@ -4,12 +4,19 @@ from app.api import admin, health
 from app.config import settings
 from app.dashboard import router as dashboard_router
 from app.scheduler.service import build_scheduler
-from worker.daily_job import run_daily_job
+from app.services.scan_schedule import enqueue_due_scan
+from app.database.session import SessionLocal
+from app.services.web_source_management import ensure_web_sources
+from worker.manual_scan import resume_active_manual_scan
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    scheduler = build_scheduler(run_daily_job)
+    with SessionLocal() as db:
+        ensure_web_sources(db)
+        db.commit()
+    scheduler = build_scheduler(enqueue_due_scan)
     scheduler.start()
+    resume_active_manual_scan()
     yield
     scheduler.shutdown(wait=False)
 

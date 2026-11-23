@@ -1,0 +1,4 @@
+{
+  "description": "职位来源由仪表盘逐个屏蔽或启用；不再按公司名称全局排除头部交易所。",
+  "excluded_company_aliases": []
+}

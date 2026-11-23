@@ -1,0 +1,34 @@
+# 由已授权 Telegram 会话现场解析；使用稳定 chat ID，不依赖显示名称。
+chats:
+  - telegram_chat_id: -1002535833398
+    title: Web3万事屋（招聘&求职&资源分享）
+    username: Web3thingsHub
+    enabled: true
+  - telegram_chat_id: -1002262852491
+    title: New Job 招聘求职俱乐部
+    username: newjob998
+    enabled: true
+  - telegram_chat_id: -1001570628112
+    title: DeJob—Web3招聘求职频道
+    username: DeJob_official
+    enabled: true
+  - telegram_chat_id: -1002492303287
+    title: Bitjob-Web3求职招聘信息聚合群
+    username: null
+    enabled: true
+  - telegram_chat_id: -1002128507472
+    title: Cryptojob-crypto行业招聘频道
+    username: cryptojobhunter
+    enabled: true
+  - telegram_chat_id: -1003397383268
+    title: 海外技术_HR KK招聘
+    username: hrkk68686668888
+    enabled: true
+  - telegram_chat_id: -1001573302051
+    title: 海外IT技术招聘群
+    username: PAZP7
+    enabled: true
+  - telegram_chat_id: -1003761200300
+    title: Web3 远程 / 实地 招聘求职频道
+    username: chanceweb3
+    enabled: true
